@@ -1,545 +1,571 @@
--- Админ-меню для Delta Executor
--- Полностью рабочий код, 1100+ строк
--- Минималистичный чёрный интерфейс, сворачивание в иконку, адаптация под ПК/телефон
+--[[
+    BUDDY VOR (BE A THIEF) - АДМИНСКРИПТ ZEUS
+    Версия: 2.7.0
+    Функции: ESP предметов, подсветка мифических/божественных предметов, 
+    автоматическая кража, быстрая постановка на базу, телепорт к луту
+    Адаптация под телефон и ПК
+    Telegram: @cherdak_coolera
+--]]
 
 local Players = game:GetService("Players")
 local LP = Players.LocalPlayer
 local UIS = game:GetService("UserInputService")
-local TS = game:GetService("TweenService")
 local RS = game:GetService("RunService")
+local TS = game:GetService("TweenService")
+local CGui = game:GetService("CoreGui")
 
-local PlayerGui = LP:WaitForChild("PlayerGui")
-
+-- Состояние скрипта
 local State = {
-    open = true,
-    target = nil,
-    speed = 32,
-    jumpPower = 50,
-    flySpeed = 80,
-    fly = false,
-    noclip = false,
-    god = false,
-    infJump = false,
-    history = {}
+    espEnabled = true,
+    autoSteal = false,
+    autoBase = false,
+    teleportEnabled = false,
+    selectedItem = nil,
+    settings = {
+        stealDelay = 0.5,
+        baseDelay = 1.0,
+        espDistance = 250,
+        rarityColors = {
+            common = Color3.fromRGB(150,150,150),
+            rare = Color3.fromRGB(80,150,255),
+            epic = Color3.fromRGB(170,80,240),
+            legendary = Color3.fromRGB(255,170,50),
+            mythical = Color3.fromRGB(255,80,120),
+            divine = Color3.fromRGB(255,215,0)
+        }
+    }
 }
 
-local function getChar(p) return p.Character and p.Character.Parent and p.Character end
-local function getHum(p) local c = getChar(p) return c and c:FindFirstChild("Humanoid") end
+-- Сервисы
+local VirtualInput = game:GetService("VirtualInputManager")
 
-local Commands = {}
-
-function Commands.kill(p) local h = getHum(p) if h then h.Health = 0 end end
-function Commands.heal(p) local h = getHum(p) if h then h.Health = h.MaxHealth end end
-function Commands.bring(p)
-    local tc = getChar(p)
-    local lc = getChar(LP)
-    if tc and lc and lc.PrimaryPart then tc:SetPrimaryPartCFrame(lc.PrimaryPart.CFrame) end
-end
-function Commands.tpTo(p)
-    local tc = getChar(p)
-    local lc = getChar(LP)
-    if tc and lc and tc.PrimaryPart then lc:SetPrimaryPartCFrame(tc.PrimaryPart.CFrame + Vector3.new(0,2,0)) end
-end
-function Commands.god(e)
-    State.god = e
-    local h = getHum(LP)
-    if h then
-        if e then h.MaxHealth = math.huge; h.Health = math.huge; h.BreakJointsOnDeath = false
-        else h.MaxHealth = 100; h.Health = 100; h.BreakJointsOnDeath = true end
-    end
-end
-function Commands.setSpeed(v) State.speed = math.clamp(v,16,350); local h = getHum(LP); if h then h.WalkSpeed = State.speed end end
-function Commands.setJump(v) State.jumpPower = math.clamp(v,20,500); local h = getHum(LP); if h then h.JumpPower = State.jumpPower end end
-function Commands.infJump(e) State.infJump = e end
-function Commands.fly(e)
-    State.fly = e
-    local c = getChar(LP)
-    if not c then return end
-    local root = c:FindFirstChild("HumanoidRootPart") or c.PrimaryPart
-    if e then
-        local bv = Instance.new("BodyVelocity")
-        bv.MaxForce = Vector3.new(math.huge,math.huge,math.huge)
-        bv.Velocity = Vector3.new(0,0,0)
-        bv.Parent = root
-        c._flyBV = bv
-    else if c._flyBV then c._flyBV:Destroy() end end
-end
-function Commands.noclip(e)
-    State.noclip = e
-    local c = getChar(LP)
-    if c then for _, part in pairs(c:GetDescendants()) do if part:IsA("BasePart") then part.CanCollide = not e end end end
-end
-
-LP.CharacterAdded:Connect(function(char)
-    wait(0.3)
-    if State.noclip then for _, part in pairs(char:GetDescendants()) do if part:IsA("BasePart") then part.CanCollide = false end end end
-    if State.fly then
-        local root = char:FindFirstChild("HumanoidRootPart") or char.PrimaryPart
-        if root then
-            local bv = Instance.new("BodyVelocity")
-            bv.MaxForce = Vector3.new(math.huge,math.huge,math.huge)
-            bv.Velocity = Vector3.new(0,0,0)
-            bv.Parent = root
-            char._flyBV = bv
-        end
-    end
-end)
-
-RS.RenderStepped:Connect(function()
-    if State.infJump and UIS:IsKeyDown(Enum.KeyCode.Space) then
-        local h = getHum(LP)
-        if h and h:GetState() ~= Enum.HumanoidStateType.Jumping then h:ChangeState(Enum.HumanoidStateType.Jumping) end
-    end
-    if State.fly then
-        local c = getChar(LP)
-        if c and c._flyBV then
-            local cam = workspace.CurrentCamera
-            local dir = Vector3.new()
-            if UIS:IsKeyDown(Enum.KeyCode.W) then dir = dir + cam.CFrame.LookVector end
-            if UIS:IsKeyDown(Enum.KeyCode.S) then dir = dir - cam.CFrame.LookVector end
-            if UIS:IsKeyDown(Enum.KeyCode.A) then dir = dir - cam.CFrame.RightVector end
-            if UIS:IsKeyDown(Enum.KeyCode.D) then dir = dir + cam.CFrame.RightVector end
-            if UIS:IsKeyDown(Enum.KeyCode.Space) then dir = dir + Vector3.new(0,1,0) end
-            if UIS:IsKeyDown(Enum.KeyCode.LeftControl) then dir = dir - Vector3.new(0,1,0) end
-            if dir.Magnitude > 0 then dir = dir.Unit * State.flySpeed end
-            c._flyBV.Velocity = dir
-        end
-    end
-end)
-
+-- GUI элементы
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "AdminGUI"
-ScreenGui.Parent = PlayerGui
-
-local function round(inst,r) local c=Instance.new("UICorner") c.CornerRadius=UDim.new(0,r or 8) c.Parent=inst end
-
-local Main = Instance.new("Frame")
-Main.Size = UDim2.new(0,420,0,560)
-Main.Position = UDim2.new(0.5,-210,0.5,-280)
-Main.BackgroundColor3 = Color3.fromRGB(20,20,22)
-Main.BackgroundTransparency = 0.1
-Main.BorderSizePixel = 0
-Main.ClipsDescendants = true
-round(Main,12)
-Main.Parent = ScreenGui
-
-local Shadow = Instance.new("Frame")
-Shadow.Size = Main.Size + UDim2.new(0,8,0,8)
-Shadow.Position = Main.Position - UDim2.new(0,4,0,4)
-Shadow.BackgroundColor3 = Color3.new(0,0,0)
-Shadow.BackgroundTransparency = 0.6
-Shadow.BorderSizePixel = 0
-round(Shadow,16)
-Shadow.Parent = ScreenGui
-
-Main:GetPropertyChangedSignal("Position"):Connect(function() Shadow.Position = Main.Position - UDim2.new(0,4,0,4) end)
-Main:GetPropertyChangedSignal("Size"):Connect(function() Shadow.Size = Main.Size + UDim2.new(0,8,0,8) end)
-
-local Title = Instance.new("Frame")
-Title.Size = UDim2.new(1,0,0,40)
-Title.BackgroundColor3 = Color3.fromRGB(30,30,35)
-Title.BackgroundTransparency = 0.3
-round(Title,12)
-Title.Parent = Main
-
-local TitleText = Instance.new("TextLabel")
-TitleText.Size = UDim2.new(1,-80,1,0)
-TitleText.Position = UDim2.new(0,12,0,0)
-TitleText.BackgroundTransparency = 1
-TitleText.Text = "ADMIN v3"
-TitleText.TextColor3 = Color3.fromRGB(220,220,230)
-TitleText.TextSize = 18
-TitleText.TextXAlignment = Enum.TextXAlignment.Left
-TitleText.Font = Enum.Font.GothamSemibold
-TitleText.Parent = Title
-
-local CollapseBtn = Instance.new("TextButton")
-CollapseBtn.Size = UDim2.new(0,32,0,32)
-CollapseBtn.Position = UDim2.new(1,-40,0,4)
-CollapseBtn.BackgroundColor3 = Color3.fromRGB(40,40,45)
-CollapseBtn.BackgroundTransparency = 0.2
-round(CollapseBtn,16)
-CollapseBtn.Text = "−"
-CollapseBtn.TextColor3 = Color3.new(1,1,1)
-CollapseBtn.TextSize = 24
-CollapseBtn.Font = Enum.Font.GothamBold
-CollapseBtn.Parent = Title
-
-local TabBar = Instance.new("Frame")
-TabBar.Size = UDim2.new(1,0,0,44)
-TabBar.Position = UDim2.new(0,0,0,40)
-TabBar.BackgroundColor3 = Color3.fromRGB(25,25,28)
-TabBar.BackgroundTransparency = 0.2
-TabBar.Parent = Main
-
-local Tabs = {"Players","Teleport","Combat","Movement","Visuals","Protection"}
-local TabBtns = {}
-local Content = {}
-
-for i,name in ipairs(Tabs) do
-    local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(1/#Tabs,-4,1,-8)
-    btn.Position = UDim2.new((i-1)/#Tabs,2,0,4)
-    btn.BackgroundColor3 = Color3.fromRGB(45,45,50)
-    btn.BackgroundTransparency = 0.4
-    round(btn,8)
-    btn.Text = name
-    btn.TextColor3 = Color3.fromRGB(210,210,220)
-    btn.TextSize = 14
-    btn.Font = Enum.Font.GothamMedium
-    btn.Parent = TabBar
-    TabBtns[name] = btn
-    
-    local cf = Instance.new("ScrollingFrame")
-    cf.Size = UDim2.new(1,-16,1,-84)
-    cf.Position = UDim2.new(0,8,0,84)
-    cf.BackgroundTransparency = 1
-    cf.ScrollBarThickness = 6
-    cf.Visible = (i==1)
-    cf.Parent = Main
-    Content[name] = cf
-    
-    btn.MouseButton1Click:Connect(function()
-        for _,b in pairs(TabBtns) do b.BackgroundColor3 = Color3.fromRGB(45,45,50) end
-        btn.BackgroundColor3 = Color3.fromRGB(70,70,85)
-        for _,f in pairs(Content) do f.Visible = false end
-        cf.Visible = true
-    end)
+ScreenGui.Name = "BeAThiefZeus"
+ScreenGui.ResetOnSpawn = false
+pcall(function() ScreenGui.Parent = CGui end)
+if not ScreenGui.Parent then
+    pcall(function() ScreenGui.Parent = LP:WaitForChild("PlayerGui") end)
 end
 
-local function PlayersTab()
-    local f = Content["Players"]
-    local layout = Instance.new("UIListLayout")
-    layout.Padding = UDim.new(0,8)
-    layout.SortOrder = Enum.SortOrder.Name
-    layout.Parent = f
+-- Функция для определения редкости предмета по имени/цвету
+local function getItemRarity(item)
+    local name = string.lower(item.Name)
+    local text = ""
+    if item:IsA("TextLabel") or item:IsA("TextButton") then
+        text = string.lower(item.Text)
+    end
     
-    local function refresh()
-        for _,c in pairs(f:GetChildren()) do if c:IsA("TextButton") then c:Destroy() end end
-        local y = 0
-        for _,p in pairs(Players:GetPlayers()) do
-            local btn = Instance.new("TextButton")
-            btn.Size = UDim2.new(1,-16,0,36)
-            btn.Position = UDim2.new(0,8,0,y)
-            btn.BackgroundColor3 = Color3.fromRGB(35,35,40)
-            round(btn,8)
-            btn.Text = p.Name .. (p.Team and " ["..p.Team.Name.."]" or "")
-            btn.TextColor3 = Color3.fromRGB(240,240,245)
-            btn.TextSize = 14
-            btn.Font = Enum.Font.Gotham
-            btn.Parent = f
-            btn.MouseButton1Click:Connect(function()
-                State.target = p
-                for _,b in pairs(f:GetChildren()) do if b:IsA("TextButton") then b.BackgroundColor3 = Color3.fromRGB(35,35,40) end end
-                btn.BackgroundColor3 = Color3.fromRGB(90,90,110)
-            end)
-            y = y + 44
+    if name:find("божествен") or text:find("божествен") or name:find("divine") or item:FindFirstChild("DivineTag") then
+        return "divine"
+    elseif name:find("мифическ") or text:find("мифическ") or name:find("mythical") or name:find("миф") then
+        return "mythical"
+    elseif name:find("легендар") or text:find("легендар") or name:find("legendary") then
+        return "legendary"
+    elseif name:find("эпическ") or text:find("эпическ") or name:find("epic") then
+        return "epic"
+    elseif name:find("редк") or text:find("редк") or name:find("rare") then
+        return "rare"
+    else
+        return "common"
+    end
+end
+
+-- Получение цвета для ESP
+local function getEspColor(item)
+    local rarity = getItemRarity(item)
+    return State.settings.rarityColors[rarity] or State.settings.rarityColors.common
+end
+
+-- Получение позиции предмета
+local function getItemPosition(item)
+    if item:IsA("BasePart") then
+        return item.Position
+    elseif item:IsA("Model") and item.PrimaryPart then
+        return item.PrimaryPart.Position
+    elseif item:IsA("Tool") and item.Handle then
+        return item.Handle.Position
+    elseif item.Parent and item.Parent:IsA("BasePart") then
+        return item.Parent.Position
+    end
+    return nil
+end
+
+-- Создание ESP для предмета
+local function createESP(item)
+    if not item or item:FindFirstChild("ZeusESP") then return end
+    
+    local position = getItemPosition(item)
+    if not position then return end
+    
+    local billboard = Instance.new("BillboardGui")
+    billboard.Name = "ZeusESP"
+    billboard.Size = UDim2.new(0, 200, 0, 50)
+    billboard.StudsOffset = Vector3.new(0, 2, 0)
+    billboard.AlwaysOnTop = true
+    billboard.MaxDistance = State.settings.espDistance
+    billboard.Enabled = State.espEnabled
+    
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(1, 0, 1, 0)
+    frame.BackgroundColor3 = getEspColor(item)
+    frame.BackgroundTransparency = 0.7
+    frame.BorderSizePixel = 0
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 8)
+    corner.Parent = frame
+    
+    local text = Instance.new("TextLabel")
+    text.Size = UDim2.new(1, 0, 1, 0)
+    text.BackgroundTransparency = 1
+    text.Text = item.Name .. "\n" .. string.upper(getItemRarity(item))
+    text.TextColor3 = Color3.new(1,1,1)
+    text.TextSize = 12
+    text.Font = Enum.Font.GothamBold
+    text.TextScaled = true
+    text.TextWrapped = true
+    text.Parent = frame
+    
+    frame.Parent = billboard
+    
+    local attachPoint
+    if item:IsA("BasePart") then
+        attachPoint = item
+    elseif item:IsA("Model") and item.PrimaryPart then
+        attachPoint = item.PrimaryPart
+    elseif item:IsA("Tool") and item.Handle then
+        attachPoint = item.Handle
+    else
+        local part = item:FindFirstChildWhichIsA("BasePart")
+        if part then attachPoint = part end
+    end
+    
+    if attachPoint then
+        billboard.Parent = attachPoint
+        return billboard
+    else
+        billboard:Destroy()
+        return nil
+    end
+end
+
+-- Обновление всех ESP
+local function refreshESP()
+    for _, esp in pairs(workspace:GetDescendants()) do
+        if esp.Name == "ZeusESP" then
+            esp:Destroy()
         end
-        f.CanvasSize = UDim2.new(0,0,0,y)
     end
-    refresh()
-    Players.PlayerAdded:Connect(refresh)
-    Players.PlayerRemoving:Connect(refresh)
     
-    local action = Instance.new("Frame")
-    action.Size = UDim2.new(1,-16,0,64)
-    action.Position = UDim2.new(0,8,1,-72)
-    action.BackgroundColor3 = Color3.fromRGB(25,25,28)
-    action.BackgroundTransparency = 0.3
-    round(action,8)
-    action.Parent = f
+    -- Поиск предметов для кражи (примерные названия, нужно подстроить под игру)
+    local itemsToFind = {"Item", "Loot", "Chest", "Box", "Valuable", "Art", "Painting", "Jewelry", "Gold", "Diamond"}
     
-    local function makeBtn(text,color,x,cb)
-        local b = Instance.new("TextButton")
-        b.Size = UDim2.new(0.23,-4,1,-8)
-        b.Position = UDim2.new(x,0,0,4)
-        b.BackgroundColor3 = color
-        round(b,6)
-        b.Text = text
-        b.TextColor3 = Color3.new(1,1,1)
-        b.Font = Enum.Font.GothamBold
-        b.TextSize = 12
-        b.Parent = action
-        b.MouseButton1Click:Connect(cb)
-        return b
-    end
-    makeBtn("KILL",Color3.fromRGB(160,40,40),0.01,function() if State.target then Commands.kill(State.target) end end)
-    makeBtn("HEAL",Color3.fromRGB(40,140,40),0.25,function() if State.target then Commands.heal(State.target) end end)
-    makeBtn("BRING",Color3.fromRGB(50,90,160),0.49,function() if State.target then Commands.bring(State.target) end end)
-    makeBtn("TP TO",Color3.fromRGB(160,120,30),0.73,function() if State.target then Commands.tpTo(State.target) end end)
-end
-
-local function TeleportTab()
-    local f = Content["Teleport"]
-    local list = Instance.new("ScrollingFrame")
-    list.Size = UDim2.new(1,0,1,0)
-    list.BackgroundTransparency = 1
-    list.ScrollBarThickness = 6
-    list.Parent = f
-    local layout = Instance.new("UIListLayout")
-    layout.Padding = UDim.new(0,6)
-    layout.Parent = list
-    
-    local function addTP(name,pos)
-        local btn = Instance.new("TextButton")
-        btn.Size = UDim2.new(1,-16,0,40)
-        btn.BackgroundColor3 = Color3.fromRGB(35,35,40)
-        round(btn,8)
-        btn.Text = name
-        btn.Font = Enum.Font.Gotham
-        btn.TextSize = 14
-        btn.Parent = list
-        btn.MouseButton1Click:Connect(function()
-            local c = getChar(LP)
-            if c and c.PrimaryPart then
-                table.insert(State.history, c.PrimaryPart.Position)
-                c.PrimaryPart.CFrame = CFrame.new(pos)
+    for _, item in pairs(workspace:GetDescendants()) do
+        if item:IsA("BasePart") or item:IsA("Model") or item:IsA("Tool") then
+            local nameLower = string.lower(item.Name)
+            local shouldESP = false
+            
+            for _, keyword in pairs(itemsToFind) do
+                if nameLower:find(string.lower(keyword)) then
+                    shouldESP = true
+                    break
+                end
             end
-        end)
-    end
-    addTP("Spawn",Vector3.new(0,5,0))
-    addTP("Sky (300)",Vector3.new(0,300,0))
-    addTP("Void (-500)",Vector3.new(0,-500,0))
-    
-    local back = Instance.new("TextButton")
-    back.Size = UDim2.new(1,-16,0,40)
-    back.BackgroundColor3 = Color3.fromRGB(70,50,50)
-    round(back,8)
-    back.Text = "Back to previous"
-    back.Font = Enum.Font.Gotham
-    back.TextSize = 14
-    back.Parent = list
-    back.MouseButton1Click:Connect(function()
-        if #State.history > 0 then
-            local last = table.remove(State.history)
-            local c = getChar(LP)
-            if c and c.PrimaryPart then c.PrimaryPart.CFrame = CFrame.new(last) end
+            
+            if shouldESP and not item:FindFirstChild("Humanoid") then
+                createESP(item)
+            end
         end
-    end)
-end
-
-local function CombatTab()
-    local f = Content["Combat"]
-    local function toggle(y,text,get,set)
-        local btn = Instance.new("TextButton")
-        btn.Size = UDim2.new(0.45,-8,0,44)
-        btn.Position = UDim2.new(0.02,0,y,0)
-        btn.BackgroundColor3 = Color3.fromRGB(45,45,50)
-        round(btn,8)
-        btn.Text = text..": OFF"
-        btn.TextColor3 = Color3.new(1,1,1)
-        btn.Font = Enum.Font.GothamBold
-        btn.Parent = f
-        btn.MouseButton1Click:Connect(function()
-            local new = not get()
-            set(new)
-            btn.Text = text..": "..(new and "ON" or "OFF")
-            btn.BackgroundColor3 = new and Color3.fromRGB(0,100,0) or Color3.fromRGB(45,45,50)
-        end)
-        return btn
     end
-    toggle(0.05,"GOD",function() return State.god end,function(v) Commands.god(v) end)
-    toggle(0.15,"INF JUMP",function() return State.infJump end,function(v) Commands.infJump(v) end)
-    toggle(0.25,"FLY",function() return State.fly end,function(v) Commands.fly(v) end)
-    toggle(0.35,"NOCLIP",function() return State.noclip end,function(v) Commands.noclip(v) end)
-    
-    local speedText = Instance.new("TextLabel")
-    speedText.Size = UDim2.new(0.45,0,0,24)
-    speedText.Position = UDim2.new(0.02,0,0.45,0)
-    speedText.BackgroundTransparency = 1
-    speedText.Text = "Speed: "..State.speed
-    speedText.TextColor3 = Color3.fromRGB(200,200,210)
-    speedText.Font = Enum.Font.Gotham
-    speedText.TextSize = 13
-    speedText.Parent = f
-    
-    local speedBox = Instance.new("TextBox")
-    speedBox.Size = UDim2.new(0.45,0,0,30)
-    speedBox.Position = UDim2.new(0.02,0,0.52,0)
-    speedBox.BackgroundColor3 = Color3.fromRGB(30,30,35)
-    round(speedBox,6)
-    speedBox.Text = tostring(State.speed)
-    speedBox.TextColor3 = Color3.new(1,1,1)
-    speedBox.Parent = f
-    speedBox.FocusLost:Connect(function()
-        local v = tonumber(speedBox.Text)
-        if v then Commands.setSpeed(v); speedText.Text = "Speed: "..State.speed end
-    end)
 end
 
-local function MovementTab()
-    local f = Content["Movement"]
-    local jumpText = Instance.new("TextLabel")
-    jumpText.Size = UDim2.new(0.45,0,0,24)
-    jumpText.Position = UDim2.new(0.02,0,0.02,0)
-    jumpText.BackgroundTransparency = 1
-    jumpText.Text = "Jump: "..State.jumpPower
-    jumpText.TextColor3 = Color3.fromRGB(200,200,210)
-    jumpText.Font = Enum.Font.Gotham
-    jumpText.Parent = f
-    
-    local jumpBox = Instance.new("TextBox")
-    jumpBox.Size = UDim2.new(0.45,0,0,30)
-    jumpBox.Position = UDim2.new(0.02,0,0.09,0)
-    jumpBox.BackgroundColor3 = Color3.fromRGB(30,30,35)
-    round(jumpBox,6)
-    jumpBox.Text = tostring(State.jumpPower)
-    jumpBox.Parent = f
-    jumpBox.FocusLost:Connect(function()
-        local v = tonumber(jumpBox.Text)
-        if v then Commands.setJump(v); jumpText.Text = "Jump: "..State.jumpPower end
-    end)
-    
-    local gravText = Instance.new("TextLabel")
-    gravText.Size = UDim2.new(0.45,0,0,24)
-    gravText.Position = UDim2.new(0.53,0,0.02,0)
-    gravText.BackgroundTransparency = 1
-    gravText.Text = "Gravity: "..workspace.Gravity
-    gravText.TextColor3 = Color3.fromRGB(200,200,210)
-    gravText.Parent = f
-    
-    local gravBox = Instance.new("TextBox")
-    gravBox.Size = UDim2.new(0.45,0,0,30)
-    gravBox.Position = UDim2.new(0.53,0,0.09,0)
-    gravBox.BackgroundColor3 = Color3.fromRGB(30,30,35)
-    round(gravBox,6)
-    gravBox.Text = tostring(workspace.Gravity)
-    gravBox.Parent = f
-    gravBox.FocusLost:Connect(function()
-        local v = tonumber(gravBox.Text)
-        if v then workspace.Gravity = math.clamp(v,0,500); gravText.Text = "Gravity: "..workspace.Gravity end
-    end)
+-- Телепорт к предмету
+local function teleportToItem(item)
+    local pos = getItemPosition(item)
+    if pos and LP.Character and LP.Character.PrimaryPart then
+        LP.Character.PrimaryPart.CFrame = CFrame.new(pos + Vector3.new(0, 2, 0))
+    end
 end
 
-local function VisualsTab()
-    local f = Content["Visuals"]
-    local espBtn = Instance.new("TextButton")
-    espBtn.Size = UDim2.new(0.45,0,0,44)
-    espBtn.Position = UDim2.new(0.02,0,0.05,0)
-    espBtn.BackgroundColor3 = Color3.fromRGB(45,45,50)
-    round(espBtn,8)
-    espBtn.Text = "ESP: OFF"
-    espBtn.Font = Enum.Font.GothamBold
-    espBtn.Parent = f
-    
-    local espOn = false
-    espBtn.MouseButton1Click:Connect(function()
-        espOn = not espOn
-        espBtn.Text = "ESP: "..(espOn and "ON" or "OFF")
-        espBtn.BackgroundColor3 = espOn and Color3.fromRGB(0,100,0) or Color3.fromRGB(45,45,50)
-        if espOn then
-            local function add()
-                for _,p in pairs(Players:GetPlayers()) do
-                    if p~=LP then
-                        local c = p.Character
-                        if c and c:FindFirstChild("Head") and not c.Head:FindFirstChild("ESP") then
-                            local bill = Instance.new("BillboardGui")
-                            bill.Name = "ESP"
-                            bill.Size = UDim2.new(0,200,0,40)
-                            bill.StudsOffset = Vector3.new(0,1.5,0)
-                            bill.AlwaysOnTop = true
-                            local lab = Instance.new("TextLabel")
-                            lab.Size = UDim2.new(1,0,1,0)
-                            lab.BackgroundTransparency = 0.5
-                            lab.BackgroundColor3 = Color3.new(0,0,0)
-                            lab.Text = p.Name.." ["..math.floor((c:FindFirstChild("Humanoid") and c.Humanoid.Health or 0)).."]"
-                            lab.TextColor3 = Color3.fromRGB(255,100,100)
-                            lab.Font = Enum.Font.GothamBold
-                            lab.TextSize = 12
-                            lab.Parent = bill
-                            bill.Parent = c.Head
-                        end
+-- Автоматическая кража (имитация клика/взаимодействия)
+local function autoStealLoop()
+    while State.autoSteal do
+        local closest = nil
+        local closestDist = math.huge
+        
+        for _, esp in pairs(workspace:GetDescendants()) do
+            if esp.Name == "ZeusESP" and esp.Parent then
+                local pos = getItemPosition(esp.Parent)
+                if pos and LP.Character and LP.Character.PrimaryPart then
+                    local dist = (pos - LP.Character.PrimaryPart.Position).Magnitude
+                    if dist < closestDist and dist < 30 then
+                        closestDist = dist
+                        closest = esp.Parent
                     end
                 end
             end
-            add()
-            Players.PlayerAdded:Connect(add)
-            local conn
-            conn = RS.RenderStepped:Connect(function()
-                if not espOn then conn:Disconnect() end
-                add()
-            end)
-        else
-            for _,b in pairs(workspace:GetDescendants()) do if b.Name=="ESP" then b:Destroy() end end
+        end
+        
+        if closest then
+            local pos = getItemPosition(closest)
+            if pos and LP.Character and LP.Character.PrimaryPart then
+                if (pos - LP.Character.PrimaryPart.Position).Magnitude > 10 then
+                    LP.Character.PrimaryPart.CFrame = CFrame.new(pos + Vector3.new(0, 2, 0))
+                end
+                wait(0.2)
+                -- Имитация нажатия E или клика
+                VirtualInput:SendKeyEvent(true, Enum.KeyCode.E, false, game)
+                VirtualInput:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+            end
+        end
+        wait(State.settings.stealDelay)
+    end
+end
+
+-- Автоматическая постановка на базу
+local function autoBaseLoop()
+    while State.autoBase do
+        -- Поиск базы (примерное название)
+        local base = nil
+        for _, obj in pairs(workspace:GetDescendants()) do
+            if obj:IsA("BasePart") and (string.lower(obj.Name):find("base") or string.lower(obj.Name):find("safe") or string.lower(obj.Name):find("storage")) then
+                base = obj
+                break
+            end
+        end
+        
+        if base and LP.Character and LP.Character.PrimaryPart then
+            local pos = base.Position
+            if (pos - LP.Character.PrimaryPart.Position).Magnitude > 15 then
+                LP.Character.PrimaryPart.CFrame = CFrame.new(pos + Vector3.new(0, 2, 0))
+            end
+            wait(0.3)
+            VirtualInput:SendKeyEvent(true, Enum.KeyCode.E, false, game)
+            VirtualInput:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+        end
+        wait(State.settings.baseDelay)
+    end
+end
+
+-- Создание главного GUI меню
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 350, 0, 500)
+MainFrame.Position = UDim2.new(0.5, -175, 0.5, -250)
+MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+MainFrame.BackgroundTransparency = 0.15
+MainFrame.BorderSizePixel = 0
+
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(0, 12)
+corner.Parent = MainFrame
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, 0, 0, 40)
+title.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+title.Text = "ZEUS - БУДЬ ВОРОМ v2.7"
+title.TextColor3 = Color3.fromRGB(255, 215, 0)
+title.TextSize = 18
+title.Font = Enum.Font.GothamBold
+title.Parent = MainFrame
+
+local titleCorner = Instance.new("UICorner")
+titleCorner.CornerRadius = UDim.new(0, 12)
+titleCorner.Parent = title
+
+local closeBtn = Instance.new("TextButton")
+closeBtn.Size = UDim2.new(0, 30, 0, 30)
+closeBtn.Position = UDim2.new(1, -38, 0, 5)
+closeBtn.BackgroundColor3 = Color3.fromRGB(60, 40, 40)
+closeBtn.Text = "✕"
+closeBtn.TextColor3 = Color3.new(1, 1, 1)
+closeBtn.TextSize = 16
+closeBtn.Font = Enum.Font.GothamBold
+closeBtn.Parent = title
+local closeCorner = Instance.new("UICorner")
+closeCorner.CornerRadius = UDim.new(0, 15)
+closeCorner.Parent = closeBtn
+
+local scroll = Instance.new("ScrollingFrame")
+scroll.Size = UDim2.new(1, -16, 1, -56)
+scroll.Position = UDim2.new(0, 8, 0, 48)
+scroll.BackgroundTransparency = 1
+scroll.ScrollBarThickness = 6
+scroll.CanvasSize = UDim2.new(0, 0, 0, 500)
+scroll.Parent = MainFrame
+
+local layout = Instance.new("UIListLayout")
+layout.Padding = UDim.new(0, 10)
+layout.SortOrder = Enum.SortOrder.LayoutOrder
+layout.Parent = scroll
+
+local function makeButton(text, color, callback, order)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, -10, 0, 45)
+    btn.BackgroundColor3 = color
+    btn.Text = text
+    btn.TextColor3 = Color3.new(1, 1, 1)
+    btn.TextSize = 14
+    btn.Font = Enum.Font.GothamSemibold
+    btn.LayoutOrder = order or 1
+    local btnCorner = Instance.new("UICorner")
+    btnCorner.CornerRadius = UDim.new(0, 8)
+    btnCorner.Parent = btn
+    btn.Parent = scroll
+    
+    btn.MouseButton1Click:Connect(callback)
+    return btn
+end
+
+local function makeToggle(text, getter, setter, color, order)
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(1, -10, 0, 45)
+    frame.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
+    frame.LayoutOrder = order or 1
+    local frameCorner = Instance.new("UICorner")
+    frameCorner.CornerRadius = UDim.new(0, 8)
+    frameCorner.Parent = frame
+    frame.Parent = scroll
+    
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(0.7, -10, 1, 0)
+    label.Position = UDim2.new(0, 10, 0, 0)
+    label.BackgroundTransparency = 1
+    label.Text = text
+    label.TextColor3 = Color3.new(1, 1, 1)
+    label.TextSize = 14
+    label.Font = Enum.Font.Gotham
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Parent = frame
+    
+    local toggleBtn = Instance.new("TextButton")
+    toggleBtn.Size = UDim2.new(0, 60, 0, 30)
+    toggleBtn.Position = UDim2.new(1, -70, 0.5, -15)
+    toggleBtn.BackgroundColor3 = getter() and Color3.fromRGB(0, 120, 0) or Color3.fromRGB(120, 40, 40)
+    toggleBtn.Text = getter() and "ON" or "OFF"
+    toggleBtn.TextColor3 = Color3.new(1, 1, 1)
+    toggleBtn.TextSize = 12
+    toggleBtn.Font = Enum.Font.GothamBold
+    local toggleCorner = Instance.new("UICorner")
+    toggleCorner.CornerRadius = UDim.new(0, 6)
+    toggleCorner.Parent = toggleBtn
+    toggleBtn.Parent = frame
+    
+    toggleBtn.MouseButton1Click:Connect(function()
+        local newState = not getter()
+        setter(newState)
+        toggleBtn.BackgroundColor3 = newState and Color3.fromRGB(0, 120, 0) or Color3.fromRGB(120, 40, 40)
+        toggleBtn.Text = newState and "ON" or "OFF"
+    end)
+    
+    return frame
+end
+
+local function makeSlider(text, getter, setter, minVal, maxVal, order)
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(1, -10, 0, 65)
+    frame.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
+    frame.LayoutOrder = order or 1
+    local frameCorner = Instance.new("UICorner")
+    frameCorner.CornerRadius = UDim.new(0, 8)
+    frameCorner.Parent = frame
+    frame.Parent = scroll
+    
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, -10, 0, 20)
+    label.Position = UDim2.new(0, 5, 0, 5)
+    label.BackgroundTransparency = 1
+    label.Text = text .. ": " .. tostring(getter())
+    label.TextColor3 = Color3.new(1, 1, 1)
+    label.TextSize = 12
+    label.Font = Enum.Font.Gotham
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Parent = frame
+    
+    local slider = Instance.new("TextBox")
+    slider.Size = UDim2.new(0.4, 0, 0, 30)
+    slider.Position = UDim2.new(0.55, 0, 0.5, -15)
+    slider.BackgroundColor3 = Color3.fromRGB(50, 50, 55)
+    slider.Text = tostring(getter())
+    slider.TextColor3 = Color3.new(1, 1, 1)
+    slider.PlaceholderText = "Значение"
+    local sliderCorner = Instance.new("UICorner")
+    sliderCorner.CornerRadius = UDim.new(0, 6)
+    sliderCorner.Parent = slider
+    slider.Parent = frame
+    
+    local minus = Instance.new("TextButton")
+    minus.Size = UDim2.new(0, 35, 0, 35)
+    minus.Position = UDim2.new(0, 5, 0.5, -17.5)
+    minus.BackgroundColor3 = Color3.fromRGB(60, 60, 65)
+    minus.Text = "-"
+    minus.TextSize = 20
+    minus.Font = Enum.Font.GothamBold
+    local minusCorner = Instance.new("UICorner")
+    minusCorner.CornerRadius = UDim.new(0, 6)
+    minusCorner.Parent = minus
+    minus.Parent = frame
+    
+    local plus = minus:Clone()
+    plus.Position = UDim2.new(0, 45, 0.5, -17.5)
+    plus.Text = "+"
+    plus.Parent = frame
+    
+    local update = function()
+        local val = getter()
+        label.Text = text .. ": " .. tostring(val)
+        slider.Text = tostring(val)
+    end
+    
+    minus.MouseButton1Click:Connect(function()
+        local new = math.max(minVal, getter() - 1)
+        setter(new)
+        update()
+    end)
+    
+    plus.MouseButton1Click:Connect(function()
+        local new = math.min(maxVal, getter() + 1)
+        setter(new)
+        update()
+    end)
+    
+    slider.FocusLost:Connect(function()
+        local val = tonumber(slider.Text)
+        if val then
+            setter(math.clamp(val, minVal, maxVal))
+            update()
         end
     end)
+    
+    return frame
 end
 
-local function ProtectionTab()
-    local f = Content["Protection"]
-    local info = Instance.new("TextLabel")
-    info.Size = UDim2.new(0.9,0,0,100)
-    info.Position = UDim2.new(0.05,0,0.05,0)
-    info.BackgroundColor3 = Color3.fromRGB(20,20,25)
-    info.BackgroundTransparency = 0.3
-    round(info,8)
-    info.Text = "ANTI-DETECT ACTIVE\n- Anti-cheat removed\n- Kick blocked\n- Telemetry off"
-    info.TextColor3 = Color3.fromRGB(150,255,150)
-    info.TextSize = 14
-    info.TextWrapped = true
-    info.Font = Enum.Font.Gotham
-    info.Parent = f
-end
+-- Настройка функций
+local function setAutoSteal(val) State.autoSteal = val; if val then coroutine.wrap(autoStealLoop)() end end
+local function setAutoBase(val) State.autoBase = val; if val then coroutine.wrap(autoBaseLoop)() end end
+local function setESP(val) State.espEnabled = val; refreshESP() end
+local function setTeleport(val) State.teleportEnabled = val end
+local function setStealDelay(val) State.settings.stealDelay = val end
+local function setBaseDelay(val) State.settings.baseDelay = val end
+local function setESPDistance(val) State.settings.espDistance = val; refreshESP() end
 
-PlayersTab()
-TeleportTab()
-CombatTab()
-MovementTab()
-VisualsTab()
-ProtectionTab()
+-- Кнопка обновления ESP
+makeButton("🔄 ОБНОВИТЬ ESP", Color3.fromRGB(45, 80, 120), function()
+    refreshESP()
+end, 1)
 
-local Status = Instance.new("Frame")
-Status.Size = UDim2.new(1,0,0,24)
-Status.Position = UDim2.new(0,0,1,-24)
-Status.BackgroundColor3 = Color3.fromRGB(15,15,18)
-Status.BackgroundTransparency = 0.2
-Status.Parent = Main
+makeToggle("🎯 ESP ПРЕДМЕТОВ", function() return State.espEnabled end, setESP, nil, 2)
+makeToggle("🦾 АВТОКРАЖА", function() return State.autoSteal end, setAutoSteal, nil, 3)
+makeToggle("🏠 АВТО-БАЗА", function() return State.autoBase end, setAutoBase, nil, 4)
+makeToggle("⚡ ТЕЛЕПОРТ ПО КЛИКУ", function() return State.teleportEnabled end, setTeleport, nil, 5)
 
-local StatusText = Instance.new("TextLabel")
-StatusText.Size = UDim2.new(1,-8,1,0)
-StatusText.Position = UDim2.new(0,4,0,0)
-StatusText.BackgroundTransparency = 1
-StatusText.Text = "READY"
-StatusText.TextColor3 = Color3.fromRGB(180,180,200)
-StatusText.TextSize = 12
-StatusText.Font = Enum.Font.Gotham
-StatusText.TextXAlignment = Enum.TextXAlignment.Left
-StatusText.Parent = Status
+makeSlider("⏱ ЗАДЕРЖКА КРАЖИ (сек)", function() return State.settings.stealDelay end, setStealDelay, 0.2, 3, 6)
+makeSlider("🏠 ЗАДЕРЖКА БАЗЫ (сек)", function() return State.settings.baseDelay end, setBaseDelay, 0.5, 5, 7)
+makeSlider("📏 ДАЛЬНОСТЬ ESP", function() return State.settings.espDistance end, setESPDistance, 50, 500, 8)
 
-spawn(function()
-    while ScreenGui and ScreenGui.Parent do
-        StatusText.Text = "Target: "..(State.target and State.target.Name or "none")
-        wait(0.5)
+makeButton("📍 ТЕЛЕПОРТ К БЛИЖАЙШЕМУ ЛУТУ", Color3.fromRGB(80, 60, 100), function()
+    local closest = nil
+    local closestDist = math.huge
+    for _, esp in pairs(workspace:GetDescendants()) do
+        if esp.Name == "ZeusESP" and esp.Parent then
+            local pos = getItemPosition(esp.Parent)
+            if pos and LP.Character and LP.Character.PrimaryPart then
+                local dist = (pos - LP.Character.PrimaryPart.Position).Magnitude
+                if dist < closestDist then
+                    closestDist = dist
+                    closest = esp.Parent
+                end
+            end
+        end
+    end
+    if closest then
+        teleportToItem(closest)
+    end
+end, 9)
+
+-- Обработчик клика для телепортации
+UIS.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if State.teleportEnabled and input.UserInputType == Enum.UserInputType.MouseButton1 then
+        local mouse = LP:GetMouse()
+        local target = mouse.Target
+        if target then
+            local parent = target.Parent
+            if parent and parent:FindFirstChild("ZeusESP") then
+                teleportToItem(parent)
+            elseif target:FindFirstChild("ZeusESP") then
+                teleportToItem(target)
+            end
+        end
     end
 end)
 
-local function collapse()
-    if not State.open then return end
-    State.open = false
-    local ti = TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut)
-    TS:Create(Main, ti, {Size = UDim2.new(0,0,0,0), Position = UDim2.new(0,-100,0.5,-30)}):Play()
-    TS:Create(Shadow, ti, {Size = UDim2.new(0,8,0,8), Position = UDim2.new(0,-104,0.5,-34)}):Play()
-    local icon = Instance.new("TextButton")
-    icon.Size = UDim2.new(0,48,0,48)
-    icon.Position = UDim2.new(0,12,0.5,-24)
-    icon.BackgroundColor3 = Color3.fromRGB(30,30,35)
-    round(icon,24)
-    icon.Text = "⚡"
-    icon.TextColor3 = Color3.fromRGB(255,215,0)
-    icon.TextSize = 28
-    icon.Font = Enum.Font.GothamBold
-    icon.Parent = ScreenGui
-    icon.MouseButton1Click:Connect(function()
-        icon:Destroy()
-        State.open = true
-        TS:Create(Main, ti, {Size = UDim2.new(0,420,0,560), Position = UDim2.new(0.5,-210,0.5,-280)}):Play()
-        TS:Create(Shadow, ti, {Size = UDim2.new(0,428,0,568), Position = UDim2.new(0.5,-214,0.5,-284)}):Play()
-    end)
+-- Запуск ESP при загрузке
+refreshESP()
+
+-- Периодическое обновление ESP
+spawn(function()
+    while ScreenGui and ScreenGui.Parent do
+        wait(5)
+        if State.espEnabled then
+            refreshESP()
+        end
+    end
+end)
+
+-- Сворачивание меню в иконку
+local minimized = false
+local minimizeBtn = Instance.new("TextButton")
+minimizeBtn.Size = UDim2.new(0, 40, 0, 40)
+minimizeBtn.Position = UDim2.new(0, 10, 0.5, -20)
+minimizeBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+minimizeBtn.Text = "⚡"
+minimizeBtn.TextColor3 = Color3.fromRGB(255, 215, 0)
+minimizeBtn.TextSize = 24
+minimizeBtn.Font = Enum.Font.GothamBold
+minimizeBtn.Visible = false
+local minCorner = Instance.new("UICorner")
+minCorner.CornerRadius = UDim.new(0, 20)
+minCorner.Parent = minimizeBtn
+minimizeBtn.Parent = ScreenGui
+
+MainFrame.Parent = ScreenGui
+
+local function toggleMinimize()
+    minimized = not minimized
+    MainFrame.Visible = not minimized
+    minimizeBtn.Visible = minimized
 end
 
-CollapseBtn.MouseButton1Click:Connect(collapse)
+local miniButton = Instance.new("TextButton")
+miniButton.Size = UDim2.new(0, 30, 0, 30)
+miniButton.Position = UDim2.new(1, -38, 0, 45)
+miniButton.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
+miniButton.Text = "−"
+miniButton.TextColor3 = Color3.new(1, 1, 1)
+miniButton.TextSize = 20
+miniButton.Font = Enum.Font.GothamBold
+local miniCorner = Instance.new("UICorner")
+miniCorner.CornerRadius = UDim.new(0, 15)
+miniCorner.Parent = miniButton
+miniButton.Parent = MainFrame
 
+miniButton.MouseButton1Click:Connect(toggleMinimize)
+minimizeBtn.MouseButton1Click:Connect(toggleMinimize)
+closeBtn.MouseButton1Click:Connect(function() ScreenGui:Destroy() end)
+
+-- Адаптация под телефон
 if UIS.TouchEnabled then
-    for _,btn in pairs(TabBtns) do btn.Size = UDim2.new(1/#Tabs,0,1,-4); btn.TextSize = 16 end
-    CollapseBtn.Size = UDim2.new(0,44,0,44)
+    MainFrame.Size = UDim2.new(0, 380, 0, 550)
+    MainFrame.Position = UDim2.new(0.5, -190, 0.5, -275)
+    for _, btn in pairs(scroll:GetDescendants()) do
+        if btn:IsA("TextButton") and btn ~= closeBtn and btn ~= miniButton and btn ~= minimizeBtn then
+            btn.Size = UDim2.new(1, -10, 0, 55)
+            btn.TextSize = 16
+        end
+    end
 end
+
+-- Консольный вывод
+print("[ZEUS] Скрипт для Будь Вором загружен! ESP активен.")
+print("[ZEUS] Меню: " .. (ScreenGui.Parent and "GUI создан" or "GUI не создан"))
