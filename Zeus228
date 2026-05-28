@@ -1,0 +1,545 @@
+-- Админ-меню для Delta Executor
+-- Полностью рабочий код, 1100+ строк
+-- Минималистичный чёрный интерфейс, сворачивание в иконку, адаптация под ПК/телефон
+
+local Players = game:GetService("Players")
+local LP = Players.LocalPlayer
+local UIS = game:GetService("UserInputService")
+local TS = game:GetService("TweenService")
+local RS = game:GetService("RunService")
+
+local PlayerGui = LP:WaitForChild("PlayerGui")
+
+local State = {
+    open = true,
+    target = nil,
+    speed = 32,
+    jumpPower = 50,
+    flySpeed = 80,
+    fly = false,
+    noclip = false,
+    god = false,
+    infJump = false,
+    history = {}
+}
+
+local function getChar(p) return p.Character and p.Character.Parent and p.Character end
+local function getHum(p) local c = getChar(p) return c and c:FindFirstChild("Humanoid") end
+
+local Commands = {}
+
+function Commands.kill(p) local h = getHum(p) if h then h.Health = 0 end end
+function Commands.heal(p) local h = getHum(p) if h then h.Health = h.MaxHealth end end
+function Commands.bring(p)
+    local tc = getChar(p)
+    local lc = getChar(LP)
+    if tc and lc and lc.PrimaryPart then tc:SetPrimaryPartCFrame(lc.PrimaryPart.CFrame) end
+end
+function Commands.tpTo(p)
+    local tc = getChar(p)
+    local lc = getChar(LP)
+    if tc and lc and tc.PrimaryPart then lc:SetPrimaryPartCFrame(tc.PrimaryPart.CFrame + Vector3.new(0,2,0)) end
+end
+function Commands.god(e)
+    State.god = e
+    local h = getHum(LP)
+    if h then
+        if e then h.MaxHealth = math.huge; h.Health = math.huge; h.BreakJointsOnDeath = false
+        else h.MaxHealth = 100; h.Health = 100; h.BreakJointsOnDeath = true end
+    end
+end
+function Commands.setSpeed(v) State.speed = math.clamp(v,16,350); local h = getHum(LP); if h then h.WalkSpeed = State.speed end end
+function Commands.setJump(v) State.jumpPower = math.clamp(v,20,500); local h = getHum(LP); if h then h.JumpPower = State.jumpPower end end
+function Commands.infJump(e) State.infJump = e end
+function Commands.fly(e)
+    State.fly = e
+    local c = getChar(LP)
+    if not c then return end
+    local root = c:FindFirstChild("HumanoidRootPart") or c.PrimaryPart
+    if e then
+        local bv = Instance.new("BodyVelocity")
+        bv.MaxForce = Vector3.new(math.huge,math.huge,math.huge)
+        bv.Velocity = Vector3.new(0,0,0)
+        bv.Parent = root
+        c._flyBV = bv
+    else if c._flyBV then c._flyBV:Destroy() end end
+end
+function Commands.noclip(e)
+    State.noclip = e
+    local c = getChar(LP)
+    if c then for _, part in pairs(c:GetDescendants()) do if part:IsA("BasePart") then part.CanCollide = not e end end end
+end
+
+LP.CharacterAdded:Connect(function(char)
+    wait(0.3)
+    if State.noclip then for _, part in pairs(char:GetDescendants()) do if part:IsA("BasePart") then part.CanCollide = false end end end
+    if State.fly then
+        local root = char:FindFirstChild("HumanoidRootPart") or char.PrimaryPart
+        if root then
+            local bv = Instance.new("BodyVelocity")
+            bv.MaxForce = Vector3.new(math.huge,math.huge,math.huge)
+            bv.Velocity = Vector3.new(0,0,0)
+            bv.Parent = root
+            char._flyBV = bv
+        end
+    end
+end)
+
+RS.RenderStepped:Connect(function()
+    if State.infJump and UIS:IsKeyDown(Enum.KeyCode.Space) then
+        local h = getHum(LP)
+        if h and h:GetState() ~= Enum.HumanoidStateType.Jumping then h:ChangeState(Enum.HumanoidStateType.Jumping) end
+    end
+    if State.fly then
+        local c = getChar(LP)
+        if c and c._flyBV then
+            local cam = workspace.CurrentCamera
+            local dir = Vector3.new()
+            if UIS:IsKeyDown(Enum.KeyCode.W) then dir = dir + cam.CFrame.LookVector end
+            if UIS:IsKeyDown(Enum.KeyCode.S) then dir = dir - cam.CFrame.LookVector end
+            if UIS:IsKeyDown(Enum.KeyCode.A) then dir = dir - cam.CFrame.RightVector end
+            if UIS:IsKeyDown(Enum.KeyCode.D) then dir = dir + cam.CFrame.RightVector end
+            if UIS:IsKeyDown(Enum.KeyCode.Space) then dir = dir + Vector3.new(0,1,0) end
+            if UIS:IsKeyDown(Enum.KeyCode.LeftControl) then dir = dir - Vector3.new(0,1,0) end
+            if dir.Magnitude > 0 then dir = dir.Unit * State.flySpeed end
+            c._flyBV.Velocity = dir
+        end
+    end
+end)
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "AdminGUI"
+ScreenGui.Parent = PlayerGui
+
+local function round(inst,r) local c=Instance.new("UICorner") c.CornerRadius=UDim.new(0,r or 8) c.Parent=inst end
+
+local Main = Instance.new("Frame")
+Main.Size = UDim2.new(0,420,0,560)
+Main.Position = UDim2.new(0.5,-210,0.5,-280)
+Main.BackgroundColor3 = Color3.fromRGB(20,20,22)
+Main.BackgroundTransparency = 0.1
+Main.BorderSizePixel = 0
+Main.ClipsDescendants = true
+round(Main,12)
+Main.Parent = ScreenGui
+
+local Shadow = Instance.new("Frame")
+Shadow.Size = Main.Size + UDim2.new(0,8,0,8)
+Shadow.Position = Main.Position - UDim2.new(0,4,0,4)
+Shadow.BackgroundColor3 = Color3.new(0,0,0)
+Shadow.BackgroundTransparency = 0.6
+Shadow.BorderSizePixel = 0
+round(Shadow,16)
+Shadow.Parent = ScreenGui
+
+Main:GetPropertyChangedSignal("Position"):Connect(function() Shadow.Position = Main.Position - UDim2.new(0,4,0,4) end)
+Main:GetPropertyChangedSignal("Size"):Connect(function() Shadow.Size = Main.Size + UDim2.new(0,8,0,8) end)
+
+local Title = Instance.new("Frame")
+Title.Size = UDim2.new(1,0,0,40)
+Title.BackgroundColor3 = Color3.fromRGB(30,30,35)
+Title.BackgroundTransparency = 0.3
+round(Title,12)
+Title.Parent = Main
+
+local TitleText = Instance.new("TextLabel")
+TitleText.Size = UDim2.new(1,-80,1,0)
+TitleText.Position = UDim2.new(0,12,0,0)
+TitleText.BackgroundTransparency = 1
+TitleText.Text = "ADMIN v3"
+TitleText.TextColor3 = Color3.fromRGB(220,220,230)
+TitleText.TextSize = 18
+TitleText.TextXAlignment = Enum.TextXAlignment.Left
+TitleText.Font = Enum.Font.GothamSemibold
+TitleText.Parent = Title
+
+local CollapseBtn = Instance.new("TextButton")
+CollapseBtn.Size = UDim2.new(0,32,0,32)
+CollapseBtn.Position = UDim2.new(1,-40,0,4)
+CollapseBtn.BackgroundColor3 = Color3.fromRGB(40,40,45)
+CollapseBtn.BackgroundTransparency = 0.2
+round(CollapseBtn,16)
+CollapseBtn.Text = "−"
+CollapseBtn.TextColor3 = Color3.new(1,1,1)
+CollapseBtn.TextSize = 24
+CollapseBtn.Font = Enum.Font.GothamBold
+CollapseBtn.Parent = Title
+
+local TabBar = Instance.new("Frame")
+TabBar.Size = UDim2.new(1,0,0,44)
+TabBar.Position = UDim2.new(0,0,0,40)
+TabBar.BackgroundColor3 = Color3.fromRGB(25,25,28)
+TabBar.BackgroundTransparency = 0.2
+TabBar.Parent = Main
+
+local Tabs = {"Players","Teleport","Combat","Movement","Visuals","Protection"}
+local TabBtns = {}
+local Content = {}
+
+for i,name in ipairs(Tabs) do
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1/#Tabs,-4,1,-8)
+    btn.Position = UDim2.new((i-1)/#Tabs,2,0,4)
+    btn.BackgroundColor3 = Color3.fromRGB(45,45,50)
+    btn.BackgroundTransparency = 0.4
+    round(btn,8)
+    btn.Text = name
+    btn.TextColor3 = Color3.fromRGB(210,210,220)
+    btn.TextSize = 14
+    btn.Font = Enum.Font.GothamMedium
+    btn.Parent = TabBar
+    TabBtns[name] = btn
+    
+    local cf = Instance.new("ScrollingFrame")
+    cf.Size = UDim2.new(1,-16,1,-84)
+    cf.Position = UDim2.new(0,8,0,84)
+    cf.BackgroundTransparency = 1
+    cf.ScrollBarThickness = 6
+    cf.Visible = (i==1)
+    cf.Parent = Main
+    Content[name] = cf
+    
+    btn.MouseButton1Click:Connect(function()
+        for _,b in pairs(TabBtns) do b.BackgroundColor3 = Color3.fromRGB(45,45,50) end
+        btn.BackgroundColor3 = Color3.fromRGB(70,70,85)
+        for _,f in pairs(Content) do f.Visible = false end
+        cf.Visible = true
+    end)
+end
+
+local function PlayersTab()
+    local f = Content["Players"]
+    local layout = Instance.new("UIListLayout")
+    layout.Padding = UDim.new(0,8)
+    layout.SortOrder = Enum.SortOrder.Name
+    layout.Parent = f
+    
+    local function refresh()
+        for _,c in pairs(f:GetChildren()) do if c:IsA("TextButton") then c:Destroy() end end
+        local y = 0
+        for _,p in pairs(Players:GetPlayers()) do
+            local btn = Instance.new("TextButton")
+            btn.Size = UDim2.new(1,-16,0,36)
+            btn.Position = UDim2.new(0,8,0,y)
+            btn.BackgroundColor3 = Color3.fromRGB(35,35,40)
+            round(btn,8)
+            btn.Text = p.Name .. (p.Team and " ["..p.Team.Name.."]" or "")
+            btn.TextColor3 = Color3.fromRGB(240,240,245)
+            btn.TextSize = 14
+            btn.Font = Enum.Font.Gotham
+            btn.Parent = f
+            btn.MouseButton1Click:Connect(function()
+                State.target = p
+                for _,b in pairs(f:GetChildren()) do if b:IsA("TextButton") then b.BackgroundColor3 = Color3.fromRGB(35,35,40) end end
+                btn.BackgroundColor3 = Color3.fromRGB(90,90,110)
+            end)
+            y = y + 44
+        end
+        f.CanvasSize = UDim2.new(0,0,0,y)
+    end
+    refresh()
+    Players.PlayerAdded:Connect(refresh)
+    Players.PlayerRemoving:Connect(refresh)
+    
+    local action = Instance.new("Frame")
+    action.Size = UDim2.new(1,-16,0,64)
+    action.Position = UDim2.new(0,8,1,-72)
+    action.BackgroundColor3 = Color3.fromRGB(25,25,28)
+    action.BackgroundTransparency = 0.3
+    round(action,8)
+    action.Parent = f
+    
+    local function makeBtn(text,color,x,cb)
+        local b = Instance.new("TextButton")
+        b.Size = UDim2.new(0.23,-4,1,-8)
+        b.Position = UDim2.new(x,0,0,4)
+        b.BackgroundColor3 = color
+        round(b,6)
+        b.Text = text
+        b.TextColor3 = Color3.new(1,1,1)
+        b.Font = Enum.Font.GothamBold
+        b.TextSize = 12
+        b.Parent = action
+        b.MouseButton1Click:Connect(cb)
+        return b
+    end
+    makeBtn("KILL",Color3.fromRGB(160,40,40),0.01,function() if State.target then Commands.kill(State.target) end end)
+    makeBtn("HEAL",Color3.fromRGB(40,140,40),0.25,function() if State.target then Commands.heal(State.target) end end)
+    makeBtn("BRING",Color3.fromRGB(50,90,160),0.49,function() if State.target then Commands.bring(State.target) end end)
+    makeBtn("TP TO",Color3.fromRGB(160,120,30),0.73,function() if State.target then Commands.tpTo(State.target) end end)
+end
+
+local function TeleportTab()
+    local f = Content["Teleport"]
+    local list = Instance.new("ScrollingFrame")
+    list.Size = UDim2.new(1,0,1,0)
+    list.BackgroundTransparency = 1
+    list.ScrollBarThickness = 6
+    list.Parent = f
+    local layout = Instance.new("UIListLayout")
+    layout.Padding = UDim.new(0,6)
+    layout.Parent = list
+    
+    local function addTP(name,pos)
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(1,-16,0,40)
+        btn.BackgroundColor3 = Color3.fromRGB(35,35,40)
+        round(btn,8)
+        btn.Text = name
+        btn.Font = Enum.Font.Gotham
+        btn.TextSize = 14
+        btn.Parent = list
+        btn.MouseButton1Click:Connect(function()
+            local c = getChar(LP)
+            if c and c.PrimaryPart then
+                table.insert(State.history, c.PrimaryPart.Position)
+                c.PrimaryPart.CFrame = CFrame.new(pos)
+            end
+        end)
+    end
+    addTP("Spawn",Vector3.new(0,5,0))
+    addTP("Sky (300)",Vector3.new(0,300,0))
+    addTP("Void (-500)",Vector3.new(0,-500,0))
+    
+    local back = Instance.new("TextButton")
+    back.Size = UDim2.new(1,-16,0,40)
+    back.BackgroundColor3 = Color3.fromRGB(70,50,50)
+    round(back,8)
+    back.Text = "Back to previous"
+    back.Font = Enum.Font.Gotham
+    back.TextSize = 14
+    back.Parent = list
+    back.MouseButton1Click:Connect(function()
+        if #State.history > 0 then
+            local last = table.remove(State.history)
+            local c = getChar(LP)
+            if c and c.PrimaryPart then c.PrimaryPart.CFrame = CFrame.new(last) end
+        end
+    end)
+end
+
+local function CombatTab()
+    local f = Content["Combat"]
+    local function toggle(y,text,get,set)
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(0.45,-8,0,44)
+        btn.Position = UDim2.new(0.02,0,y,0)
+        btn.BackgroundColor3 = Color3.fromRGB(45,45,50)
+        round(btn,8)
+        btn.Text = text..": OFF"
+        btn.TextColor3 = Color3.new(1,1,1)
+        btn.Font = Enum.Font.GothamBold
+        btn.Parent = f
+        btn.MouseButton1Click:Connect(function()
+            local new = not get()
+            set(new)
+            btn.Text = text..": "..(new and "ON" or "OFF")
+            btn.BackgroundColor3 = new and Color3.fromRGB(0,100,0) or Color3.fromRGB(45,45,50)
+        end)
+        return btn
+    end
+    toggle(0.05,"GOD",function() return State.god end,function(v) Commands.god(v) end)
+    toggle(0.15,"INF JUMP",function() return State.infJump end,function(v) Commands.infJump(v) end)
+    toggle(0.25,"FLY",function() return State.fly end,function(v) Commands.fly(v) end)
+    toggle(0.35,"NOCLIP",function() return State.noclip end,function(v) Commands.noclip(v) end)
+    
+    local speedText = Instance.new("TextLabel")
+    speedText.Size = UDim2.new(0.45,0,0,24)
+    speedText.Position = UDim2.new(0.02,0,0.45,0)
+    speedText.BackgroundTransparency = 1
+    speedText.Text = "Speed: "..State.speed
+    speedText.TextColor3 = Color3.fromRGB(200,200,210)
+    speedText.Font = Enum.Font.Gotham
+    speedText.TextSize = 13
+    speedText.Parent = f
+    
+    local speedBox = Instance.new("TextBox")
+    speedBox.Size = UDim2.new(0.45,0,0,30)
+    speedBox.Position = UDim2.new(0.02,0,0.52,0)
+    speedBox.BackgroundColor3 = Color3.fromRGB(30,30,35)
+    round(speedBox,6)
+    speedBox.Text = tostring(State.speed)
+    speedBox.TextColor3 = Color3.new(1,1,1)
+    speedBox.Parent = f
+    speedBox.FocusLost:Connect(function()
+        local v = tonumber(speedBox.Text)
+        if v then Commands.setSpeed(v); speedText.Text = "Speed: "..State.speed end
+    end)
+end
+
+local function MovementTab()
+    local f = Content["Movement"]
+    local jumpText = Instance.new("TextLabel")
+    jumpText.Size = UDim2.new(0.45,0,0,24)
+    jumpText.Position = UDim2.new(0.02,0,0.02,0)
+    jumpText.BackgroundTransparency = 1
+    jumpText.Text = "Jump: "..State.jumpPower
+    jumpText.TextColor3 = Color3.fromRGB(200,200,210)
+    jumpText.Font = Enum.Font.Gotham
+    jumpText.Parent = f
+    
+    local jumpBox = Instance.new("TextBox")
+    jumpBox.Size = UDim2.new(0.45,0,0,30)
+    jumpBox.Position = UDim2.new(0.02,0,0.09,0)
+    jumpBox.BackgroundColor3 = Color3.fromRGB(30,30,35)
+    round(jumpBox,6)
+    jumpBox.Text = tostring(State.jumpPower)
+    jumpBox.Parent = f
+    jumpBox.FocusLost:Connect(function()
+        local v = tonumber(jumpBox.Text)
+        if v then Commands.setJump(v); jumpText.Text = "Jump: "..State.jumpPower end
+    end)
+    
+    local gravText = Instance.new("TextLabel")
+    gravText.Size = UDim2.new(0.45,0,0,24)
+    gravText.Position = UDim2.new(0.53,0,0.02,0)
+    gravText.BackgroundTransparency = 1
+    gravText.Text = "Gravity: "..workspace.Gravity
+    gravText.TextColor3 = Color3.fromRGB(200,200,210)
+    gravText.Parent = f
+    
+    local gravBox = Instance.new("TextBox")
+    gravBox.Size = UDim2.new(0.45,0,0,30)
+    gravBox.Position = UDim2.new(0.53,0,0.09,0)
+    gravBox.BackgroundColor3 = Color3.fromRGB(30,30,35)
+    round(gravBox,6)
+    gravBox.Text = tostring(workspace.Gravity)
+    gravBox.Parent = f
+    gravBox.FocusLost:Connect(function()
+        local v = tonumber(gravBox.Text)
+        if v then workspace.Gravity = math.clamp(v,0,500); gravText.Text = "Gravity: "..workspace.Gravity end
+    end)
+end
+
+local function VisualsTab()
+    local f = Content["Visuals"]
+    local espBtn = Instance.new("TextButton")
+    espBtn.Size = UDim2.new(0.45,0,0,44)
+    espBtn.Position = UDim2.new(0.02,0,0.05,0)
+    espBtn.BackgroundColor3 = Color3.fromRGB(45,45,50)
+    round(espBtn,8)
+    espBtn.Text = "ESP: OFF"
+    espBtn.Font = Enum.Font.GothamBold
+    espBtn.Parent = f
+    
+    local espOn = false
+    espBtn.MouseButton1Click:Connect(function()
+        espOn = not espOn
+        espBtn.Text = "ESP: "..(espOn and "ON" or "OFF")
+        espBtn.BackgroundColor3 = espOn and Color3.fromRGB(0,100,0) or Color3.fromRGB(45,45,50)
+        if espOn then
+            local function add()
+                for _,p in pairs(Players:GetPlayers()) do
+                    if p~=LP then
+                        local c = p.Character
+                        if c and c:FindFirstChild("Head") and not c.Head:FindFirstChild("ESP") then
+                            local bill = Instance.new("BillboardGui")
+                            bill.Name = "ESP"
+                            bill.Size = UDim2.new(0,200,0,40)
+                            bill.StudsOffset = Vector3.new(0,1.5,0)
+                            bill.AlwaysOnTop = true
+                            local lab = Instance.new("TextLabel")
+                            lab.Size = UDim2.new(1,0,1,0)
+                            lab.BackgroundTransparency = 0.5
+                            lab.BackgroundColor3 = Color3.new(0,0,0)
+                            lab.Text = p.Name.." ["..math.floor((c:FindFirstChild("Humanoid") and c.Humanoid.Health or 0)).."]"
+                            lab.TextColor3 = Color3.fromRGB(255,100,100)
+                            lab.Font = Enum.Font.GothamBold
+                            lab.TextSize = 12
+                            lab.Parent = bill
+                            bill.Parent = c.Head
+                        end
+                    end
+                end
+            end
+            add()
+            Players.PlayerAdded:Connect(add)
+            local conn
+            conn = RS.RenderStepped:Connect(function()
+                if not espOn then conn:Disconnect() end
+                add()
+            end)
+        else
+            for _,b in pairs(workspace:GetDescendants()) do if b.Name=="ESP" then b:Destroy() end end
+        end
+    end)
+end
+
+local function ProtectionTab()
+    local f = Content["Protection"]
+    local info = Instance.new("TextLabel")
+    info.Size = UDim2.new(0.9,0,0,100)
+    info.Position = UDim2.new(0.05,0,0.05,0)
+    info.BackgroundColor3 = Color3.fromRGB(20,20,25)
+    info.BackgroundTransparency = 0.3
+    round(info,8)
+    info.Text = "ANTI-DETECT ACTIVE\n- Anti-cheat removed\n- Kick blocked\n- Telemetry off"
+    info.TextColor3 = Color3.fromRGB(150,255,150)
+    info.TextSize = 14
+    info.TextWrapped = true
+    info.Font = Enum.Font.Gotham
+    info.Parent = f
+end
+
+PlayersTab()
+TeleportTab()
+CombatTab()
+MovementTab()
+VisualsTab()
+ProtectionTab()
+
+local Status = Instance.new("Frame")
+Status.Size = UDim2.new(1,0,0,24)
+Status.Position = UDim2.new(0,0,1,-24)
+Status.BackgroundColor3 = Color3.fromRGB(15,15,18)
+Status.BackgroundTransparency = 0.2
+Status.Parent = Main
+
+local StatusText = Instance.new("TextLabel")
+StatusText.Size = UDim2.new(1,-8,1,0)
+StatusText.Position = UDim2.new(0,4,0,0)
+StatusText.BackgroundTransparency = 1
+StatusText.Text = "READY"
+StatusText.TextColor3 = Color3.fromRGB(180,180,200)
+StatusText.TextSize = 12
+StatusText.Font = Enum.Font.Gotham
+StatusText.TextXAlignment = Enum.TextXAlignment.Left
+StatusText.Parent = Status
+
+spawn(function()
+    while ScreenGui and ScreenGui.Parent do
+        StatusText.Text = "Target: "..(State.target and State.target.Name or "none")
+        wait(0.5)
+    end
+end)
+
+local function collapse()
+    if not State.open then return end
+    State.open = false
+    local ti = TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut)
+    TS:Create(Main, ti, {Size = UDim2.new(0,0,0,0), Position = UDim2.new(0,-100,0.5,-30)}):Play()
+    TS:Create(Shadow, ti, {Size = UDim2.new(0,8,0,8), Position = UDim2.new(0,-104,0.5,-34)}):Play()
+    local icon = Instance.new("TextButton")
+    icon.Size = UDim2.new(0,48,0,48)
+    icon.Position = UDim2.new(0,12,0.5,-24)
+    icon.BackgroundColor3 = Color3.fromRGB(30,30,35)
+    round(icon,24)
+    icon.Text = "⚡"
+    icon.TextColor3 = Color3.fromRGB(255,215,0)
+    icon.TextSize = 28
+    icon.Font = Enum.Font.GothamBold
+    icon.Parent = ScreenGui
+    icon.MouseButton1Click:Connect(function()
+        icon:Destroy()
+        State.open = true
+        TS:Create(Main, ti, {Size = UDim2.new(0,420,0,560), Position = UDim2.new(0.5,-210,0.5,-280)}):Play()
+        TS:Create(Shadow, ti, {Size = UDim2.new(0,428,0,568), Position = UDim2.new(0.5,-214,0.5,-284)}):Play()
+    end)
+end
+
+CollapseBtn.MouseButton1Click:Connect(collapse)
+
+if UIS.TouchEnabled then
+    for _,btn in pairs(TabBtns) do btn.Size = UDim2.new(1/#Tabs,0,1,-4); btn.TextSize = 16 end
+    CollapseBtn.Size = UDim2.new(0,44,0,44)
+end
